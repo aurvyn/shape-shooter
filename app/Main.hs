@@ -23,6 +23,8 @@ window = InWindow "Shape Shooter" (windowWidth, windowHeight) offset
 background :: Color
 background = black
 
+newtype Action = Action (Float -> Entity -> [Entity])
+
 data Entity = Entity {
     pos :: Point,
     vel :: Vector,
@@ -31,8 +33,9 @@ data Entity = Entity {
     health :: Int,
     damage :: Int,
     score :: Int,
+    action :: Action,
     mesh :: Picture
-} deriving Show
+}
 
 data GameState = GameState {
     player :: Entity,
@@ -40,19 +43,69 @@ data GameState = GameState {
     enemies :: [Entity],
     eBullets :: [Entity],
     isPaused :: Bool
-} deriving Show
+}
+
+despawn :: Action
+despawn = Action $ \_ _ -> []
+
+idle :: Action
+idle = Action $ \_ entity -> [entity]
+
+wait :: Float -> Action -> Action
+wait time nextAction@(Action action) = Action $ \dt entity ->
+    if time <= 0
+        then action dt entity
+        else [entity{action = wait (time - dt) nextAction}]
+
+moveTo :: Point -> Float -> Action -> Action
+moveTo target@(targetX, targetY) speed (Action action) = Action $ \dt entity@Entity{pos=(shipX, shipY)} ->
+    let
+        dx = targetX - shipX
+        dy = targetY - shipY
+        distance = sqrt (dx**2 + dy**2)
+        velX = speed * dx / distance
+        velY = speed * dy / distance
+    in if distance < speed * dt
+        then action dt entity { pos = target, vel = (0, 0) }
+        else [entity { vel = (velX, velY) }]
+
+shootTo :: Point -> Float -> Action -> Action
+shootTo target speed nextAction = Action $ \_ entity@Entity{pos} ->
+    [entity{action = nextAction}, bullet{pos = pos, action = moveTo target speed despawn}]
+
+gruntPlan :: Action
+gruntPlan = wait 1.0
+    $ moveTo (200, 0) 100
+    $ shootTo (0, -200) 200
+    $ moveTo (-200, 0) 100
+    $ wait 2.0
+    $ shootTo (0, 200) 200
+    $ wait 1.0
+    despawn
 
 grunt :: Entity
-grunt = Entity {
-    pos = (0, 0),
-    vel = (0, 0),
-    radius = 25,
-    maxHealth = 50,
-    health = 50,
-    damage = 1,
-    score = 10,
-    mesh = color red $ rectangleSolid 50 50
-}
+grunt = Entity
+    (0, 0)
+    (0, 0)
+    25
+    50
+    50
+    1
+    10
+    gruntPlan
+    $ color red $ rectangleSolid 50 50
+
+bullet :: Entity
+bullet = Entity
+    (0, 0)
+    (0, 0)
+    5
+    1
+    1
+    5
+    0
+    idle
+    $ color red $ circleSolid 5
 
 initialState :: GameState
 initialState = GameState {
@@ -64,6 +117,7 @@ initialState = GameState {
         100
         2
         0
+        idle
         $ color blue $ rectangleSolid 50 50,
     pBullets = [],
     enemies = [
@@ -74,7 +128,7 @@ initialState = GameState {
 }
 
 render :: GameState -> Picture
-render (GameState player@(Entity _ _ _ pMaxHP pHP _ score _) pBullets enemies eBullets isPaused) =
+render (GameState player@(Entity _ _ _ pMaxHP pHP _ score _ _) pBullets enemies eBullets isPaused) =
     if pHP <= 0 then
         pictures [
             translate (-200) 50
@@ -86,20 +140,19 @@ render (GameState player@(Entity _ _ _ pMaxHP pHP _ score _) pBullets enemies eB
                 $ color yellow
                 $ text ("Score: " ++ show score)
         ]
-    else pictures [pHealthPic, entityPics, eHealthPics, scorePic, bulletCountPic, pausedPic]
-    where
+    else let
+        entityPics = pictures [
+            translate x y mesh
+            | Entity (x, y) _ _ _ _ _ _ _ mesh
+            <- [player] ++ pBullets ++ enemies ++ eBullets]
         pHealthPic =
             translate 0 ((-windowHeightFloat)/2)
             $ color green
             $ rectangleSolid (windowWidthFloat * fromIntegral pHP / fromIntegral pMaxHP) (windowHeightFloat/20)
-        entityPics = pictures [
-            translate x y mesh
-            | Entity (x, y) _ _ _ _ _ _ mesh
-            <- [player] ++ pBullets ++ enemies ++ eBullets]
         eHealthPics = pictures [translate x (y + 40)
             $ color green
             $ rectangleSolid (fromIntegral eHP) 5
-            | Entity (x, y) _ _ _ eHP _ _ _ <- enemies]
+            | Entity (x, y) _ _ _ eHP _ _ _ _ <- enemies]
         scorePic =
             translate ((-windowWidthFloat)/2+5) (windowHeightFloat/2-30)
             $ scale 0.2 0.2
@@ -110,26 +163,28 @@ render (GameState player@(Entity _ _ _ pMaxHP pHP _ score _) pBullets enemies eB
             $ color yellow
             $ text ("Bullets in the scene: " ++ show (length eBullets + length pBullets))
         pausedPic = if isPaused
-            then translate (-90) (-380)
+            then translate (-90) (-370)
                 $ scale 0.2 0.2
                 $ color green
                 $ text "Game Paused!"
             else blank
+    in pictures [entityPics, pHealthPic, eHealthPics, scorePic, bulletCountPic, pausedPic]
 
 tickScene :: Float -> GameState -> GameState
-tickScene delta (GameState player pBullets enemies eBullets isPaused) =
-    GameState player' pBullets' enemies' eBullets' isPaused
-    where
-        tick :: Entity -> Entity
-        tick entity@(Entity (x, y) (vx, vy) _ _ _ _ _ _) =
-            entity { pos = (x + vx * delta, y + vy * delta) }
-        player' = tick player
-        pBullets' = map tick pBullets
-        enemies' = map tick enemies
-        eBullets' = map tick eBullets
+tickScene dt (GameState player pBullets enemies eBullets isPaused) = let
+    tick :: Entity -> [Entity]
+    tick entity@(Entity (x, y) (vx, vy) _ _ _ _ _ (Action action) _) =
+        action dt entity{ pos = (x + vx * dt, y + vy * dt) }
+    pEntities = tick player
+    eEntities = filter (not . null) $ map tick enemies
+    player' = head pEntities
+    pBullets' = tail pEntities ++ concatMap tick pBullets
+    enemies' = map head eEntities
+    eBullets' = concatMap tail eEntities ++ concatMap tick eBullets
+    in GameState player' pBullets' enemies' eBullets' isPaused
 
 isIntersect :: Entity -> Entity -> Bool
-isIntersect (Entity (shipX, shipY) _ shipRad _ _ _ _ _) (Entity (enemyX, enemyY) _ enemyRad _ _ _ _ _) =
+isIntersect (Entity (shipX, shipY) _ shipRad _ _ _ _ _ _) (Entity (enemyX, enemyY) _ enemyRad _ _ _ _ _ _) =
     sqrt ((shipX-enemyX)**2 + (shipY-enemyY)**2) < shipRad + enemyRad
 
 hitBy :: [Entity] -> Entity -> ([Entity], Entity)
@@ -141,26 +196,20 @@ hitBy enemies ship = (enemies', ship') where
     enemies' = hitEnemies ++ misses
 
 collideShips :: GameState -> GameState
-collideShips (GameState player pBullets enemies eBullets isPaused) =
-    GameState player' pBullets' enemies' eBullets' isPaused
-    where
-        (eBullets', newPlayer) = hitBy eBullets player
-        (newEnemies, player') = hitBy enemies newPlayer
-        (pBullets', enemies') = mapAccumL hitBy pBullets newEnemies
+collideShips (GameState player pBullets enemies eBullets isPaused) = let
+    (eBullets', newPlayer) = hitBy eBullets player
+    (newEnemies, player') = hitBy enemies newPlayer
+    (pBullets', enemies') = mapAccumL hitBy pBullets newEnemies
+    in GameState player' pBullets' enemies' eBullets' isPaused
 
 despawnEntities :: GameState -> GameState
-despawnEntities (GameState player pBullets enemies eBullets isPaused) =
-    GameState player pBullets' enemies' eBullets' isPaused
-    where
-        isInside :: Entity -> Bool
-        isInside (Entity (x, y) _ _ _ _ _ _ _) =
-            x > -(windowWidthFloat/2) &&
-            x < (windowWidthFloat/2) &&
-            y > -(windowHeightFloat/2) &&
-            y < (windowHeightFloat/2)
-        pBullets' = filter isInside pBullets
-        eBullets' = filter isInside eBullets
-        enemies' = filter (\(Entity _ _ _ _ eHP _ _ _) -> eHP > 0) enemies
+despawnEntities (GameState player pBullets enemies eBullets isPaused) = let
+    isAlive :: Entity -> Bool
+    isAlive Entity{ health } = health > 0
+    pBullets' = filter isAlive pBullets
+    eBullets' = filter isAlive eBullets
+    enemies' = filter isAlive enemies
+    in GameState player pBullets' enemies' eBullets' isPaused
 
 update :: Float -> GameState -> GameState
 update seconds_lapsed game
