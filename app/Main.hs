@@ -4,6 +4,7 @@ import Graphics.Gloss
 import Graphics.Gloss.Interface.Pure.Game
 import Data.List
 import System.Random
+import Data.Maybe
 
 randomGen :: StdGen
 randomGen = mkStdGen 666
@@ -245,12 +246,10 @@ tickScene dt (GameState player pBullets enemies eBullets weapon isPaused) = let
     tick :: Entity -> [Entity]
     tick entity@(Entity (x, y) (vx, vy) _ _ _ _ _ (Action action) _) =
         action dt entity{ pos = (x + vx * dt, y + vy * dt) }
-    pEntities = tick player
-    eEntities = filter (not . null) $ map tick enemies
-    player' = head pEntities
-    pBullets' = tail pEntities ++ concatMap tick pBullets
-    enemies' = map head eEntities
-    eBullets' = concatMap tail eEntities ++ concatMap tick eBullets
+    (player', addedPBullets) = fromMaybe (error "Player entity should not be deleted!") $ uncons $ tick player
+    pBullets' = addedPBullets ++ concatMap tick pBullets
+    (enemies', addedEBullets) = unzip $ mapMaybe (uncons . tick) enemies
+    eBullets' = concat addedEBullets ++ concatMap tick eBullets
     in GameState player' pBullets' enemies' eBullets' weapon isPaused
 
 isIntersect :: Entity -> Entity -> Bool

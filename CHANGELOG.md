@@ -1,4 +1,4 @@
-# Revision history for shape_shooter
+# Revision history for shape-shooter
 
 ## 0.1.0.0 -- YYYY-mm-dd
 
