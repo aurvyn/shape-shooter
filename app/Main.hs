@@ -55,10 +55,14 @@ wait :: Float -> Action -> Action
 wait time nextAction@(Action action) = Action $ \dt entity ->
     if time <= 0
         then action dt entity
-        else [entity{action = wait (time - dt) nextAction}]
+        else [entity{ action = wait (time - dt) nextAction }]
+
+move :: Action -> Action
+move _ = Action $ \dt entity@Entity{ pos = (shipX, shipY), vel = (velX, velY) } ->
+    [entity { pos = (shipX + velX * dt, shipY + velY * dt) }]
 
 moveTo :: Point -> Float -> Action -> Action
-moveTo target@(targetX, targetY) speed (Action action) = Action $ \dt entity@Entity{pos=(shipX, shipY)} ->
+moveTo target@(targetX, targetY) speed (Action action) = Action $ \dt entity@Entity{ pos = (shipX, shipY) } ->
     let
         dx = targetX - shipX
         dy = targetY - shipY
@@ -69,17 +73,30 @@ moveTo target@(targetX, targetY) speed (Action action) = Action $ \dt entity@Ent
         then action dt entity { pos = target, vel = (0, 0) }
         else [entity { vel = (velX, velY) }]
 
-shootTo :: Point -> Float -> Action -> Action
-shootTo target speed nextAction = Action $ \_ entity@Entity{pos} ->
-    [entity{action = nextAction}, bullet{pos = pos, action = moveTo target speed despawn}]
+shoot :: Entity -> Action -> Action
+shoot bullet nextAction = Action $ \_ entity@Entity{ pos } ->
+    [entity{ action = nextAction }, bullet{ pos = pos, action = move despawn }]
+
+shootTo :: Point -> Entity -> Float -> Action -> Action
+shootTo target bullet speed nextAction = Action $ \_ entity@Entity{ pos } ->
+    [entity{ action = nextAction }, bullet{ pos = pos, action = moveTo target speed despawn }]
+
+repeatedlyShoot :: Entity -> Float -> Float -> Action -> Action
+repeatedlyShoot bullet remainingTime interval _ = Action $ \dt entity@Entity{ pos } ->
+    if remainingTime <= 0
+        then [entity{ action = repeatedlyShoot bullet interval interval idle }, bullet{ pos = pos, action = move despawn }]
+        else [entity{ action = repeatedlyShoot bullet (remainingTime - dt) interval idle }]
+
+playerPlan :: Action
+playerPlan = repeatedlyShoot (playerColor rubber{ vel=(0, 300) }) 2.0 0.5 idle
 
 gruntPlan :: Action
 gruntPlan = wait 1.0
     $ moveTo (200, 0) 100
-    $ shootTo (0, -200) 200
+    $ shootTo (0, -200) (enemyColor rubber) 200
     $ moveTo (-200, 0) 100
     $ wait 2.0
-    $ shootTo (0, 200) 200
+    $ shootTo (0, 200) (enemyColor rubber) 200
     $ wait 1.0
     despawn
 
@@ -95,8 +112,8 @@ grunt = Entity
     gruntPlan
     $ color red $ rectangleSolid 50 50
 
-bullet :: Entity
-bullet = Entity
+rubber :: Entity
+rubber = Entity
     (0, 0)
     (0, 0)
     5
@@ -105,7 +122,13 @@ bullet = Entity
     5
     0
     idle
-    $ color red $ circleSolid 5
+    $ circleSolid 5
+
+enemyColor :: Entity -> Entity
+enemyColor entity = entity { mesh = color (light $ light red) $ mesh entity }
+
+playerColor :: Entity -> Entity
+playerColor entity = entity { mesh = color (light $ light blue) $ mesh entity }
 
 initialState :: GameState
 initialState = GameState {
@@ -117,7 +140,7 @@ initialState = GameState {
         100
         2
         0
-        idle
+        playerPlan
         $ color blue $ rectangleSolid 50 50,
     pBullets = [],
     enemies = [
@@ -204,12 +227,18 @@ collideShips (GameState player pBullets enemies eBullets isPaused) = let
 
 despawnEntities :: GameState -> GameState
 despawnEntities (GameState player pBullets enemies eBullets isPaused) = let
-    isAlive :: Entity -> Bool
-    isAlive Entity{ health } = health > 0
-    pBullets' = filter isAlive pBullets
-    eBullets' = filter isAlive eBullets
-    enemies' = filter isAlive enemies
-    in GameState player pBullets' enemies' eBullets' isPaused
+    isInside :: Entity -> Bool
+    isInside Entity{ health, pos = (x, y) } =
+        health > 0 &&
+        x > -(windowWidthFloat/2) &&
+        x < (windowWidthFloat/2) &&
+        y > -(windowHeightFloat/2) &&
+        y < (windowHeightFloat/2)
+    player' = player { score = score player + sum (map score deadEnemies) }
+    pBullets' = filter isInside pBullets
+    eBullets' = filter isInside eBullets
+    (enemies', deadEnemies) = partition ((> 0) . health) enemies
+    in GameState player' pBullets' enemies' eBullets' isPaused
 
 update :: Float -> GameState -> GameState
 update seconds_lapsed game
