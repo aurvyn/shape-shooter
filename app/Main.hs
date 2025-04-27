@@ -83,35 +83,40 @@ moveUntil time nextAction@(Action action) = Action $ \dt entity@Entity{ pos = (s
         else pure [entity { pos = (shipX + velX * dt, shipY + velY * dt), action = moveUntil (time - dt) nextAction }]
 
 shoot :: Entity -> Action -> Action
-shoot bullet nextAction = Action $ \_ entity@Entity{ pos } ->
-    pure [entity{ action = nextAction }, bullet{ pos = pos, action = action bullet }]
+shoot bullet nextAction = Action $ \_ entity ->
+    pure [entity{ action = nextAction }, bullet{ pos = pos entity, action = action bullet }]
 
 shootTo :: Point -> Entity -> Float -> Action -> Action
-shootTo target bullet speed nextAction = Action $ \_ entity@Entity{ pos } ->
-    pure [entity{ action = nextAction }, bullet{ pos = pos, action = moveTo target speed despawn }]
+shootTo target bullet speed nextAction = Action $ \_ entity ->
+    pure [entity{ action = nextAction }, bullet{ pos = pos entity, action = moveTo target speed despawn }]
 
 shootRandom :: Entity -> Float -> Action -> Action
-shootRandom bullet speed nextAction = Action $ \_ entity@Entity{ pos } -> do
+shootRandom bullet speed nextAction = Action $ \_ entity -> do
     angle <- randomRIO (0, 2 * pi)
-    pure [entity{ action = nextAction }, bullet{ pos = pos, vel = (speed * cos angle, speed * sin angle) }]
+    pure [entity{ action = nextAction }, bullet{ pos = pos entity, vel = (speed * cos angle, speed * sin angle) }]
 
 repeatedlyShoot :: Entity -> Float -> Float -> Action -> Action
-repeatedlyShoot bullet cooldown interval _ = Action $ \dt entity@Entity{ pos } ->
+repeatedlyShoot bullet cooldown interval _ = Action $ \dt entity ->
     pure $ if cooldown <= 0
-        then [entity{ action = repeatedlyShoot bullet interval interval idle }, bullet{ pos = pos, action = action bullet }]
+        then [entity{ action = repeatedlyShoot bullet interval interval idle }, bullet{ pos = pos entity, action = action bullet }]
         else [entity{ action = repeatedlyShoot bullet (cooldown - dt) interval idle }]
 
-repeatedlyShootRandom :: Entity -> Float -> Float -> Action -> Action
-repeatedlyShootRandom bullet cooldown interval _ = Action $ \dt entity@Entity{ pos } -> do
-    angle <- randomRIO (0, 2 * pi)
-    let speed = 300
-        newBullet = bullet { pos = pos, vel = (speed * cos angle, speed * sin angle), action = moveUntil 0.4 despawn }
+repeatedlyShootRandom :: (Float, Float) -> Entity -> Float -> Float -> Float -> Action -> Action
+repeatedlyShootRandom angleRange bullet speed cooldown interval _ = Action $ \dt entity -> do
+    angle <- randomRIO angleRange
+    let newBullet = bullet {
+            pos = pos entity,
+            vel = (speed * cos angle, speed * sin angle),
+            action = moveUntil 0.3 $ action bullet
+        }
     pure $ if cooldown <= 0
-        then [entity{ action = repeatedlyShootRandom bullet interval interval idle }, newBullet]
-        else [entity{ action = repeatedlyShootRandom bullet (cooldown - dt) interval idle }]
+        then [entity{ action = repeatedlyShootRandom angleRange bullet speed interval interval idle }, newBullet]
+        else [entity{ action = repeatedlyShootRandom angleRange bullet speed (cooldown - dt) interval idle }]
 
 standardPlayerPlan :: Action
-standardPlayerPlan = repeatedlyShoot (playerColor rubber{ vel = (0, 300) }) 0 0.5 idle
+standardPlayerPlan = repeatedlyShoot
+    rubber{ vel = (0, 300), mesh = color (light blue) $ mesh rubber }
+    0.1 0.5 idle
 
 bombPlan :: Entity -> Float -> Action
 bombPlan fragment splits
@@ -126,16 +131,32 @@ bombPlan fragment splits
         travelTime = splits / 10
         frag = fragment {
             action = bombPlan fragment (splits - 1),
-            mesh = scale (splits/5) (splits/5) $ mesh fragment,
-            damage = round splits
+            mesh = scale (splits/8) (splits/8) $ mesh fragment,
+            damage = round splits * 3
         }
         fragSpeed = 30 * splits
 
+flamethrowerPlan :: Action
+flamethrowerPlan = repeatedlyShootRandom
+    (0.3*pi, 0.7*pi)
+    flames { action = moveUntil 0.2 $ bombPlan flames 3 }
+    150
+    0.1
+    0
+    idle
+    where flames = flame { mesh = color orange $ mesh flame }
+
 roombaPlayerPlan :: Action
-roombaPlayerPlan = repeatedlyShootRandom (playerColor rubber) 0.5 0 idle
+roombaPlayerPlan = repeatedlyShootRandom
+    (0, 2*pi)
+    rubber { action = despawn, mesh = color (dark green) $ mesh rubber }
+    300
+    0.5
+    0
+    idle
 
 playerBomb :: Entity
-playerBomb = playerColor bomb{ vel = (0, 150), action = moveUntil 0.5 $ bombPlan playerBomb 4, mesh = mesh bomb }
+playerBomb = playerColor bomb{ vel = (0, 150), action = moveUntil 0.5 $ bombPlan playerBomb 5 }
 
 bombPlayerPlan :: Action
 bombPlayerPlan = repeatedlyShoot playerBomb 1.0 1.0 idle
@@ -174,6 +195,18 @@ rubber = Entity
     (move despawn)
     $ circleSolid 5
 
+flame :: Entity
+flame = Entity
+    (0, 0)
+    (0, 0)
+    3
+    1
+    1
+    1
+    0
+    (moveUntil 0.5 despawn)
+    $ circleSolid 5
+
 bomb :: Entity
 bomb = Entity
     (0, 0)
@@ -184,7 +217,7 @@ bomb = Entity
     20
     0
     (moveUntil 2 despawn)
-    $ circleSolid 10
+    $ circleSolid 15
 
 enemyColor :: Entity -> Entity
 enemyColor entity = entity { mesh = color (light $ light red) $ mesh entity }
@@ -230,7 +263,7 @@ render (GameState player@(Entity _ _ _ pMaxHP pHP _ score _ _) pBullets enemies 
         entityPics = pictures [
             translate x y mesh
             | Entity (x, y) _ _ _ _ _ _ _ mesh
-            <- [player] ++ pBullets ++ enemies ++ eBullets]
+            <- pBullets ++ eBullets ++ [player] ++ enemies]
         pHealthPic =
             translate 0 ((-windowHeightFloat)/2)
             $ color green
@@ -335,7 +368,7 @@ handleKeys (EventKey (Char c) dir _ _) game = pure game { player = p { vel = vel
         (plan, weapon) = case c of
             'h' -> (standardPlayerPlan, "Rubber Gun")
             'j' -> (bombPlayerPlan, "Bomb Launcher")
-            'k' -> (standardPlayerPlan, "Flame Thrower")
+            'k' -> (flamethrowerPlan, "Flame Thrower")
             'l' -> (roombaPlayerPlan, "Roomba")
             _ -> (action p, currentWeapon game)
 handleKeys _ game = pure game
