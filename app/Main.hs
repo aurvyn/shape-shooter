@@ -86,6 +86,9 @@ shoot :: Entity -> Action -> Action
 shoot bullet nextAction = Action $ \_ entity ->
     pure [entity{ action = nextAction }, bullet{ pos = pos entity, action = action bullet }]
 
+shootWait :: Entity -> Float -> Action -> Action
+shootWait entity time = (wait time) . shoot entity
+
 shootTo :: Point -> Entity -> Float -> Action -> Action
 shootTo target bullet speed nextAction = Action $ \_ entity ->
     pure [entity{ action = nextAction }, bullet{ pos = pos entity, action = moveTo target speed despawn }]
@@ -139,7 +142,7 @@ bombPlan fragment splits
 flamethrowerPlan :: Action
 flamethrowerPlan = repeatedlyShootRandom
     (0.3*pi, 0.7*pi)
-    flames { action = moveUntil 0.2 $ bombPlan flames 3 }
+    flames { action = moveUntil 0.2 $ bombPlan flames 2 }
     150
     0.1
     0
@@ -149,7 +152,7 @@ flamethrowerPlan = repeatedlyShootRandom
 roombaPlayerPlan :: Action
 roombaPlayerPlan = repeatedlyShootRandom
     (0, 2*pi)
-    rubber { action = despawn, mesh = color (dark green) $ mesh rubber }
+    rubber { action = despawn, mesh = color (dark green) $ mesh rubber, damage = 3 }
     300
     0.5
     0
@@ -161,15 +164,27 @@ playerBomb = playerColor bomb{ vel = (0, 150), action = moveUntil 0.5 $ bombPlan
 bombPlayerPlan :: Action
 bombPlayerPlan = repeatedlyShoot playerBomb 1.0 1.0 idle
 
-gruntPlan :: Action
-gruntPlan = wait 1.0
-    $ moveTo (200, 0) 100
-    $ shootTo (0, -200) (enemyColor rubber) 200
-    $ moveTo (-200, 0) 100
-    $ wait 2.0
-    $ shootTo (0, 200) (enemyColor rubber) 200
-    $ wait 1.0
+gruntPlan :: Float -> Bool -> Action
+gruntPlan speed isLeft
+    = moveTo (sign*200, 200) 100
+    $ spreadShoot (enemyColor rubber) 0.2
+    $ moveTo (sign*250, 100) 100
+    $ wait (1.0/speed)
+    $ spreadShoot (enemyColor rubber) 0.2
+    $ moveTo (sign*200, 0) 100
+    $ wait (1.0/speed)
+    $ spreadShoot (enemyColor rubber) 0.2
+    $ moveTo (sign*150, -100) 100
+    $ wait (1.0/speed)
+    $ spreadShoot (enemyColor rubber) 0.2
+    $ moveTo (-sign*150, -450) 100
     despawn
+    where
+        sign = if isLeft then -1 else 1
+        spreadShoot bullet time nextAction = shootWait bullet{ vel = (-sign*50*speed, 80*speed) } time
+            $ shootWait bullet{ vel = (-sign*100*speed, 0) } time
+            $ shootWait bullet{ vel = (-sign*50*speed, -80*speed) } time
+            $ shoot bullet{ vel = (-sign*10*speed, -100*speed) } nextAction
 
 grunt :: Entity
 grunt = Entity
@@ -180,7 +195,7 @@ grunt = Entity
     50
     1
     10
-    gruntPlan
+    idle
     $ color red $ rectangleSolid 50 50
 
 rubber :: Entity
@@ -239,7 +254,12 @@ initialState = GameState {
         $ color blue $ rectangleSolid 50 50,
     pBullets = [],
     enemies = [
-        grunt { pos = (0, 200) }
+        grunt { pos = (0, 500), action = gruntPlan 1 True },
+        grunt { pos = (0, 500), action = wait 2.0 $ gruntPlan 1 False },
+        grunt { pos = (200, 500), action = wait 5.0 $ gruntPlan 1.2 True },
+        grunt { pos = (-400, 500), action = wait 7.0 $ gruntPlan 1.2 False },
+        grunt { pos = (-400, 400), action = wait 10.0 $ gruntPlan 1.5 True },
+        grunt { pos = (400, 400), action = wait 12.0 $ gruntPlan 1.5 False }
     ],
     eBullets = [],
     currentWeapon = "Rubber Gun",
