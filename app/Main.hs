@@ -118,8 +118,10 @@ repeatedlyShootRandom angleRange bullet speed cooldown interval _ = Action $ \dt
 
 standardPlayerPlan :: Action
 standardPlayerPlan = repeatedlyShoot
-    rubber{ vel = (0, 300), mesh = color (light blue) $ mesh rubber }
-    0.1 0.5 idle
+    rubber{ vel = (0, 300), damage = 10, mesh = color (light blue) $ mesh rubber }
+    0.1
+    0.4
+    idle
 
 bombPlan :: Entity -> Float -> Action
 bombPlan fragment splits
@@ -134,6 +136,7 @@ bombPlan fragment splits
         travelTime = splits / 10
         frag = fragment {
             action = bombPlan fragment (splits - 1),
+            radius = radius fragment * 0.8,
             mesh = scale (splits/8) (splits/8) $ mesh fragment,
             damage = round splits * 3
         }
@@ -142,10 +145,10 @@ bombPlan fragment splits
 flamethrowerPlan :: Action
 flamethrowerPlan = repeatedlyShootRandom
     (0.3*pi, 0.7*pi)
-    flames { action = moveUntil 0.2 $ bombPlan flames 2 }
+    flames { action = moveUntil 0.2 $ bombPlan flames 3 }
     150
     0.1
-    0
+    0.03
     idle
     where flames = flame { mesh = color orange $ mesh flame }
 
@@ -159,7 +162,7 @@ roombaPlayerPlan = repeatedlyShootRandom
     idle
 
 playerBomb :: Entity
-playerBomb = playerColor bomb{ vel = (0, 150), action = moveUntil 0.5 $ bombPlan playerBomb 5 }
+playerBomb = playerColor bomb{ vel = (0, 150), action = moveUntil 0.5 $ bombPlan playerBomb 4.9 }
 
 bombPlayerPlan :: Action
 bombPlayerPlan = repeatedlyShoot playerBomb 1.0 1.0 idle
@@ -214,13 +217,13 @@ flame :: Entity
 flame = Entity
     (0, 0)
     (0, 0)
-    3
+    2
     1
     1
     1
     0
     (moveUntil 0.5 despawn)
-    $ circleSolid 5
+    $ circleSolid 10
 
 bomb :: Entity
 bomb = Entity
