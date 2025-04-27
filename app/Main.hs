@@ -3,6 +3,13 @@ module Main where
 import Graphics.Gloss
 import Graphics.Gloss.Interface.Pure.Game
 import Data.List
+import System.Random
+
+randomGen :: StdGen
+randomGen = mkStdGen 666
+
+randRange :: (Float, Float) -> Float
+randRange range = fst $ randomR range randomGen
 
 windowWidth, windowHeight, fps :: Int
 windowWidth = 600
@@ -42,6 +49,7 @@ data GameState = GameState {
     pBullets :: [Entity],
     enemies :: [Entity],
     eBullets :: [Entity],
+    currentWeapon :: String,
     isPaused :: Bool
 }
 
@@ -73,22 +81,44 @@ moveTo target@(targetX, targetY) speed (Action action) = Action $ \dt entity@Ent
         then action dt entity { pos = target, vel = (0, 0) }
         else [entity { vel = (velX, velY) }]
 
+moveUntil :: Float -> Action -> Action
+moveUntil time nextAction@(Action action) = Action $ \dt entity@Entity{ pos = (shipX, shipY), vel = (velX, velY) } ->
+    if time <= 0
+        then action dt entity
+        else [entity { pos = (shipX + velX * dt, shipY + velY * dt), action = moveUntil (time - dt) nextAction }]
+
 shoot :: Entity -> Action -> Action
 shoot bullet nextAction = Action $ \_ entity@Entity{ pos } ->
-    [entity{ action = nextAction }, bullet{ pos = pos, action = move despawn }]
+    [entity{ action = nextAction }, bullet{ pos = pos, action = action bullet }]
 
 shootTo :: Point -> Entity -> Float -> Action -> Action
 shootTo target bullet speed nextAction = Action $ \_ entity@Entity{ pos } ->
     [entity{ action = nextAction }, bullet{ pos = pos, action = moveTo target speed despawn }]
 
 repeatedlyShoot :: Entity -> Float -> Float -> Action -> Action
-repeatedlyShoot bullet remainingTime interval _ = Action $ \dt entity@Entity{ pos } ->
-    if remainingTime <= 0
-        then [entity{ action = repeatedlyShoot bullet interval interval idle }, bullet{ pos = pos, action = move despawn }]
-        else [entity{ action = repeatedlyShoot bullet (remainingTime - dt) interval idle }]
+repeatedlyShoot bullet cooldown interval _ = Action $ \dt entity@Entity{ pos } ->
+    if cooldown <= 0
+        then [entity{ action = repeatedlyShoot bullet interval interval idle }, bullet{ pos = pos, action = action bullet }]
+        else [entity{ action = repeatedlyShoot bullet (cooldown - dt) interval idle }]
 
-playerPlan :: Action
-playerPlan = repeatedlyShoot (playerColor rubber{ vel=(0, 300) }) 2.0 0.5 idle
+standardPlayerPlan :: Action
+standardPlayerPlan = repeatedlyShoot (playerColor rubber{ vel=(0, 300) }) 1.0 0.5 idle
+
+bombPlan :: Entity -> Float -> Action
+bombPlan fragment splits
+    | splits > 1 = moveUntil (splits/5)
+        $ shoot fragment{ vel = (randRange (0, 200), 0), action = bombPlan fragment $ splits-1, mesh = color (light blue) $ circleSolid (splits*3) }
+        $ shoot fragment{ vel = (randRange (0, -200), 0), action = bombPlan fragment $ splits-1, mesh = color (light blue) $ circleSolid (splits*3) }
+        $ shoot fragment{ vel = (0, randRange (0, 200)), action = bombPlan fragment $ splits-1, mesh = color (light blue) $ circleSolid (splits*3) }
+        $ shoot fragment{ vel = (0, randRange (0, -200)), action = bombPlan fragment $ splits-1, mesh = color (light blue) $ circleSolid (splits*3) }
+        despawn
+    | otherwise = moveUntil splits despawn
+
+playerBomb :: Entity
+playerBomb = bomb{ vel = (0, 100), action = moveUntil 2 $ bombPlan playerBomb 3, mesh = color (light blue) $ mesh bomb }
+
+bombPlayerPlan :: Action
+bombPlayerPlan = repeatedlyShoot playerBomb 1.0 1.0 idle
 
 gruntPlan :: Action
 gruntPlan = wait 1.0
@@ -121,8 +151,20 @@ rubber = Entity
     1
     5
     0
-    idle
+    (move despawn)
     $ circleSolid 5
+
+bomb :: Entity
+bomb = Entity
+    (0, 0)
+    (0, 0)
+    10
+    1
+    1
+    20
+    0
+    (moveUntil 2 despawn)
+    $ circleSolid 10
 
 enemyColor :: Entity -> Entity
 enemyColor entity = entity { mesh = color (light $ light red) $ mesh entity }
@@ -140,18 +182,19 @@ initialState = GameState {
         100
         2
         0
-        playerPlan
+        standardPlayerPlan
         $ color blue $ rectangleSolid 50 50,
     pBullets = [],
     enemies = [
         grunt { pos = (0, 200) }
     ],
     eBullets = [],
+    currentWeapon = "Rubber Gun",
     isPaused = False
 }
 
 render :: GameState -> Picture
-render (GameState player@(Entity _ _ _ pMaxHP pHP _ score _ _) pBullets enemies eBullets isPaused) =
+render (GameState player@(Entity _ _ _ pMaxHP pHP _ score _ _) pBullets enemies eBullets weapon isPaused) =
     if pHP <= 0 then
         pictures [
             translate (-200) 50
@@ -185,16 +228,20 @@ render (GameState player@(Entity _ _ _ pMaxHP pHP _ score _ _) pBullets enemies 
             $ scale 0.1 0.1
             $ color yellow
             $ text ("Bullets in the scene: " ++ show (length eBullets + length pBullets))
+        weaponPic = translate ((-windowWidthFloat)/2+5) ((-windowHeightFloat)/2+30)
+            $ scale 0.15 0.15
+            $ color cyan
+            $ text ("Current Weapon: " ++ weapon)
         pausedPic = if isPaused
             then translate (-90) (-370)
                 $ scale 0.2 0.2
                 $ color green
                 $ text "Game Paused!"
             else blank
-    in pictures [entityPics, pHealthPic, eHealthPics, scorePic, bulletCountPic, pausedPic]
+    in pictures [entityPics, pHealthPic, eHealthPics, scorePic, bulletCountPic, pausedPic, weaponPic]
 
 tickScene :: Float -> GameState -> GameState
-tickScene dt (GameState player pBullets enemies eBullets isPaused) = let
+tickScene dt (GameState player pBullets enemies eBullets weapon isPaused) = let
     tick :: Entity -> [Entity]
     tick entity@(Entity (x, y) (vx, vy) _ _ _ _ _ (Action action) _) =
         action dt entity{ pos = (x + vx * dt, y + vy * dt) }
@@ -204,7 +251,7 @@ tickScene dt (GameState player pBullets enemies eBullets isPaused) = let
     pBullets' = tail pEntities ++ concatMap tick pBullets
     enemies' = map head eEntities
     eBullets' = concatMap tail eEntities ++ concatMap tick eBullets
-    in GameState player' pBullets' enemies' eBullets' isPaused
+    in GameState player' pBullets' enemies' eBullets' weapon isPaused
 
 isIntersect :: Entity -> Entity -> Bool
 isIntersect (Entity (shipX, shipY) _ shipRad _ _ _ _ _ _) (Entity (enemyX, enemyY) _ enemyRad _ _ _ _ _ _) =
@@ -219,14 +266,14 @@ hitBy enemies ship = (enemies', ship') where
     enemies' = hitEnemies ++ misses
 
 collideShips :: GameState -> GameState
-collideShips (GameState player pBullets enemies eBullets isPaused) = let
+collideShips (GameState player pBullets enemies eBullets weapon isPaused) = let
     (eBullets', newPlayer) = hitBy eBullets player
     (newEnemies, player') = hitBy enemies newPlayer
     (pBullets', enemies') = mapAccumL hitBy pBullets newEnemies
-    in GameState player' pBullets' enemies' eBullets' isPaused
+    in GameState player' pBullets' enemies' eBullets' weapon isPaused
 
 despawnEntities :: GameState -> GameState
-despawnEntities (GameState player pBullets enemies eBullets isPaused) = let
+despawnEntities (GameState player pBullets enemies eBullets weapon isPaused) = let
     isInside :: Entity -> Bool
     isInside Entity{ health, pos = (x, y) } =
         health > 0 &&
@@ -238,7 +285,7 @@ despawnEntities (GameState player pBullets enemies eBullets isPaused) = let
     pBullets' = filter isInside pBullets
     eBullets' = filter isInside eBullets
     (enemies', deadEnemies) = partition ((> 0) . health) enemies
-    in GameState player' pBullets' enemies' eBullets' isPaused
+    in GameState player' pBullets' enemies' eBullets' weapon isPaused
 
 update :: Float -> GameState -> GameState
 update seconds_lapsed game
@@ -248,7 +295,7 @@ update seconds_lapsed game
 handleKeys :: Event -> GameState -> GameState
 handleKeys (EventKey (Char 'p') Down _ _) game = game { isPaused = not (isPaused game) }
 handleKeys (EventKey (Char 'n') Down _ _) _ = initialState
-handleKeys (EventKey (Char c) dir _ _) game = game { player = p { vel = velocity } }
+handleKeys (EventKey (Char c) dir _ _) game = game { player = p { vel = velocity, action = plan }, currentWeapon = weapon }
     where
         p = player game
         (vx, vy) = vel p
@@ -260,6 +307,12 @@ handleKeys (EventKey (Char c) dir _ _) game = game { player = p { vel = velocity
             'a' -> (vx - sign * playerSpeed, vy)
             'd' -> (vx + sign * playerSpeed, vy)
             _   -> (vx, vy)
+        (plan, weapon) = case c of
+            'h' -> (standardPlayerPlan, "Rubber Gun")
+            'j' -> (bombPlayerPlan, "Bomb Launcher")
+            'k' -> (standardPlayerPlan, "Flame Thrower")
+            'l' -> (standardPlayerPlan, "Roomba")
+            _ -> (action p, currentWeapon game)
 handleKeys _ game = game
 
 main :: IO ()

@@ -68,7 +68,7 @@ executable shape_shooter
     -- other-extensions:
 
     -- Other library packages from which modules are imported.
-    build-depends:    base, gloss
+    build-depends:    base, gloss, random
 
     -- Directories containing source files.
     hs-source-dirs:   app
