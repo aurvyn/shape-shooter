@@ -353,7 +353,7 @@ render (GameState player@(Entity _ _ _ pMaxHP pHP _ score _ _) pBullets enemies 
                 scale 0.5 0.5
                 $ color white
                 $ text "Game Over!"
-        timeScore = 100 - round timeLapsed :: Int
+        timeScore = 200 - round timeLapsed :: Int
         healthScore = max 0 pHP
         killScorePic = translate (-180) (0)
             $ scale 0.2 0.2
@@ -394,10 +394,6 @@ render (GameState player@(Entity _ _ _ pMaxHP pHP _ score _ _) pBullets enemies 
             $ scale 0.2 0.2
             $ color white
             $ text ("Score: " ++ show score)
-        bulletCountPic = translate ((-windowWidthFloat)/2+5) (windowHeightFloat/2-60)
-            $ scale 0.1 0.1
-            $ color yellow
-            $ text ("Bullets in the scene: " ++ show (length eBullets + length pBullets))
         weaponPic = translate ((-windowWidthFloat)/2+5) ((-windowHeightFloat)/2+30)
             $ scale 0.15 0.15
             $ color cyan
@@ -408,7 +404,7 @@ render (GameState player@(Entity _ _ _ pMaxHP pHP _ score _ _) pBullets enemies 
                 $ color green
                 $ text "Game Paused!"
             else blank
-    in pictures [entityPics, pHealthPic, eHealthPics, scorePic, bulletCountPic, pausedPic, weaponPic]
+    in pictures [entityPics, pHealthPic, eHealthPics, scorePic, pausedPic, weaponPic]
 
 tick :: Float -> Entity -> IO [Entity]
 tick dt entity@Entity{ pos = (x, y), vel = (vx, vy), action = Action action } =
