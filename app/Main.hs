@@ -165,8 +165,11 @@ roombaPlayerPlan = repeatedlyShootRandom
 playerBomb :: Entity
 playerBomb = playerColor bomb{ vel = (0, 150), action = moveUntil 0.5 $ bombPlan playerBomb 4.9 }
 
+enemyBomb :: Entity
+enemyBomb = enemyColor bomb{ action = moveUntil 1 $ bombPlan enemyBomb 3.9 }
+
 mothershipBomb :: Entity
-mothershipBomb = enemyColor bomb{ action = moveUntil 2 $ bombPlan mothershipBomb 6.9, mesh = color yellow $ mesh bomb, damage = 10 }
+mothershipBomb = bomb{ action = moveUntil 2 $ bombPlan mothershipBomb 6.9, mesh = color yellow $ mesh bomb, damage = 10 }
 
 bombPlayerPlan :: Action
 bombPlayerPlan = repeatedlyShoot playerBomb 1.0 1.0 idle
@@ -197,6 +200,9 @@ speedsterPlan :: Float -> Bool -> Action
 speedsterPlan speed isLeft
     = moveTo (sign*200, 200) moveSpeed
     $ spreadShootMove ammo 0.3 (200, 200)
+    $ shoot enemyBomb{ vel = (-sign*80*speed, -20*speed) }
+    $ shoot enemyBomb{ vel = (-sign*20*speed, -80*speed) }
+    $ wait 1
     $ spreadShootMove ammo 0.25 (150, 50)
     $ spreadShootMove ammo 0.2 (100, -100)
     $ spreadShootMove ammo 0.15 (-100, -450)
@@ -220,7 +226,7 @@ speedsterPlan speed isLeft
 mothershipPlan :: Action
 mothershipPlan
     = moveTo (0, 300) 50
-    $ repeatedlyShootRandom (1.2*pi, 1.8*pi) mothershipBomb 50 1 2
+    $ repeatedlyShootRandom (1.2*pi, 1.8*pi) mothershipBomb 50 1 4
     $ idle
 
 grunt :: Entity
@@ -339,12 +345,13 @@ render :: GameState -> IO Picture
 render (GameState player@(Entity _ _ _ pMaxHP pHP _ score _ _) pBullets enemies eBullets weapon timeLapsed isPaused) =
     pure $ if pHP <= 0 || null enemies then let
         titlePic = translate (-200) 100
-            $ scale 0.5 0.5
             $ if null enemies then
-                color (light $ light blue)
+                scale 0.65 0.65
+                $ color (light $ light blue)
                 $ text "You Won!"
             else
-                color white
+                scale 0.5 0.5
+                $ color white
                 $ text "Game Over!"
         timeScore = 100 - round timeLapsed :: Int
         healthScore = max 0 pHP
