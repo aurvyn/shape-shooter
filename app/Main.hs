@@ -415,7 +415,7 @@ render (GameState player@(Entity _ _ _ pMaxHP pHP _ score _ _) pBullets enemies 
             makeKeyPic 'L' (weapon == "Roomba") 80
             ]
         pausedPic = if isPaused
-            then translate (-90) (-370)
+            then translate (-90) (350)
                 $ scale 0.2 0.2
                 $ color green
                 $ text "Game Paused!"
