@@ -1,5 +1,5 @@
 module Main where
-
+-- for tips and tricks on how to beat the game, see the bottom of the file where the controls are defined!
 import Graphics.Gloss
 import Graphics.Gloss.Interface.IO.Game
 import Data.List
@@ -478,14 +478,14 @@ handleKeys (EventKey (Char c) dir _ _) game = pure game { player = p { vel = vel
             's' -> (vx, vy - sign * playerSpeed)
             'a' -> (vx - sign * playerSpeed, vy)
             'd' -> (vx + sign * playerSpeed, vy)
-            _   -> (vx, vy)
-        (plan, weapon) = case c of
-            'h' -> (standardPlayerPlan, "Rubber Gun")
-            'j' -> (bombPlayerPlan, "Bomb Launcher")
-            'k' -> (flamethrowerPlan, "Flame Thrower")
-            'l' -> (roombaPlayerPlan, "Roomba")
+            _   -> (vx, vy)                             -- Struggling to beat the game? Here are some tips:
+        (plan, weapon) = case c of                      -- (amount of 💡 indicates the difficulty of using the weapon to its max potential)
+            'h' -> (standardPlayerPlan, "Rubber Gun")   -- medium-low dps, use this gun when you need to shoot from super far away 💡
+            'j' -> (bombPlayerPlan, "Bomb Launcher")    -- high dps, but only when it explodes. Requires good timing 💡💡💡
+            'k' -> (flamethrowerPlan, "Flame Thrower")  -- high dps mid range, but deals low damage at close range 💡💡
+            'l' -> (roombaPlayerPlan, "Roomba")         -- low dps, but shoots in all directions and can be used when kiting enemies 💡
             _ -> (action p, currentWeapon game)
-handleKeys _ game = pure game
+handleKeys _ game = pure game -- final tip: switching to certain weapons can have delay, so be careful when switching weapons mid-fight!
 
 main :: IO ()
 main = playIO window background fps initialState render handleKeys update
