@@ -119,7 +119,7 @@ repeatedlyShootRandom angleRange bullet speed cooldown interval _ = Action $ \dt
 
 standardPlayerPlan :: Action
 standardPlayerPlan = repeatedlyShoot
-    rubber{ vel = (0, 300), damage = 10, mesh = color (light blue) $ mesh rubber }
+    (playerColor rubber{ vel = (0, 300), damage = 10 })
     0.1
     0.4
     idle
@@ -237,7 +237,7 @@ grunt = Entity
     50
     50
     1
-    10
+    20
     idle
     $ color red $ rectangleSolid 50 50
 
@@ -249,7 +249,7 @@ speedster = Entity
     30
     30
     2
-    15
+    30
     idle
     $ color (dark orange) $ rectangleSolid 30 30
 
@@ -261,7 +261,7 @@ mothership = Entity
     1000
     1000
     3
-    50
+    200
     mothershipPlan
     $ color (dark yellow) $ rectangleSolid 100 100
 
@@ -377,6 +377,16 @@ render (GameState player@(Entity _ _ _ pMaxHP pHP _ score _ _) pBullets enemies 
             $ text "Press 'n' to restart"
         in pictures [titlePic, killScorePic, timeScorePic, healthScorePic, totalScorePic, restartPic]
     else let
+        makeKeyPic :: Char -> Bool -> Float -> Picture
+        makeKeyPic c isSelected offsetY = pictures [
+            translate (windowWidthFloat/2) ((-windowHeightFloat)/2+offsetY)
+                $ color (if isSelected then white else greyN 0.5)
+                $ circleSolid 30,
+            translate (windowWidthFloat/2-20) ((-windowHeightFloat)/2+offsetY-10)
+                $ scale 0.15 0.15
+                $ color black
+                $ text [c]
+            ]
         entityPics = pictures [
             translate x y mesh
             | Entity (x, y) _ _ _ _ _ _ _ mesh
@@ -398,13 +408,19 @@ render (GameState player@(Entity _ _ _ pMaxHP pHP _ score _ _) pBullets enemies 
             $ scale 0.15 0.15
             $ color cyan
             $ text ("Current Weapon: " ++ weapon)
+        keysPic = pictures [
+            makeKeyPic 'H' (weapon == "Rubber Gun") 320,
+            makeKeyPic 'J' (weapon == "Bomb Launcher") 240,
+            makeKeyPic 'K' (weapon == "Flame Thrower") 160,
+            makeKeyPic 'L' (weapon == "Roomba") 80
+            ]
         pausedPic = if isPaused
             then translate (-90) (-370)
                 $ scale 0.2 0.2
                 $ color green
                 $ text "Game Paused!"
             else blank
-    in pictures [entityPics, pHealthPic, eHealthPics, scorePic, pausedPic, weaponPic]
+    in pictures [entityPics, pHealthPic, eHealthPics, scorePic, pausedPic, weaponPic, keysPic]
 
 tick :: Float -> Entity -> IO [Entity]
 tick dt entity@Entity{ pos = (x, y), vel = (vx, vy), action = Action action } =
@@ -459,7 +475,7 @@ despawnEntities (GameState player pBullets enemies eBullets weapon timeLapsed is
 
 update :: Float -> GameState -> IO GameState
 update seconds_lapsed game
-    | isPaused game || health (player game) < 0 || null (enemies game) = pure game
+    | isPaused game || health (player game) <= 0 || null (enemies game) = pure game
     | otherwise = do
         game' <- tickScene seconds_lapsed game
         pure $ despawnEntities . collideShips $ game'
